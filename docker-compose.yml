@@ -1,0 +1,275 @@
+#version: '3.9'
+services:
+
+  # MySQL order-service
+  mysql-order:
+    container_name: mysql-order
+    image: mysql
+    environment:
+      MYSQL_DATABASE: order_service
+      MYSQL_USER: order
+      MYSQL_PASSWORD: order123
+      MYSQL_ROOT_PASSWORD: order123
+    volumes:
+      - ./order-service/mysql-order-data:/var/lib/mysql
+      - ./order-service/my.cnf:/etc/mysql/conf.d/my.cnf
+    expose:
+      - "3307"
+    ports:
+      - "3307:3307"
+    restart: unless-stopped
+    command: ["bash", "-c", "chmod 644 /etc/mysql/conf.d/my.cnf && exec mysqld"]
+
+
+  # MySQL inventory-service
+  mysql-inventory:
+    container_name: mysql-inventory
+    image: mysql
+    environment:
+      MYSQL_DATABASE: inventory_service
+      MYSQL_USER: inventory
+      MYSQL_PASSWORD: inventory123
+      MYSQL_ROOT_PASSWORD: inventory123
+    volumes:
+      - ./inventory-service/mysql-inventory-data:/var/lib/mysql
+      - ./inventory-service/my.cnf:/etc/mysql/conf.d/my.cnf
+    expose:
+      - "3308"
+    ports:
+      - "3308:3308"
+    restart: unless-stopped
+    command: ["bash", "-c", "chmod 644 /etc/mysql/conf.d/my.cnf && exec mysqld"]
+
+
+  # MongoDB product-service
+  mongo:
+    container_name: mongo
+    image: mongo
+    volumes:
+      - ./product-service/mongo-product-data:/data/db
+    expose:
+      - "27017"
+    ports:
+      - "27017:27017"
+    restart: unless-stopped
+
+
+  # MySQL KeyCloak
+  mysql-keycloak:
+    container_name: mysql-keycloak
+    image: mysql
+    environment:
+      MYSQL_DATABASE: keycloak_service
+      MYSQL_USER: keycloak
+      MYSQL_PASSWORD: keycloak123
+      MYSQL_ROOT_PASSWORD: keycloak123
+    volumes:
+      - ./api-gateway/mysql-keycloak-data:/var/lib/mysql
+      - ./api-gateway/my.cnf:/etc/mysql/conf.d/my.cnf
+    expose:
+      - "3309"
+    ports:
+      - "3309:3309"
+    restart: unless-stopped
+    command: ["bash", "-c", "chmod 644 /etc/mysql/conf.d/my.cnf && exec mysqld"]
+
+
+  # KeyCloak Config
+  keycloak:
+    container_name: keycloak
+    image: quay.io/keycloak/keycloak
+    command: [ "start-dev", "--import-realm"]
+    environment:
+      DB_VENDOR: MYSQL
+      DB_ADDR: mysql
+      DB_DATABASE: keycloak_service
+      DB_USER: keycloak
+      DB_PASSWORD: keycloak123
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    volumes:
+      - ./api-gateway/keycloak-realms/:/opt/keycloak/data/import/
+    ports:
+      - "8080:8080"
+    depends_on:
+      - mysql-keycloak
+
+
+  # Kafka Config
+  zookeeper:
+    container_name: zookeeper
+    image: confluentinc/cp-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  broker:
+    container_name: broker
+    image: confluentinc/cp-kafka
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://broker:29092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+    ports:
+      - "9092:9092"
+    depends_on:
+      - zookeeper
+
+
+  # Zipkin Config
+  zipkin:
+    container_name: zipkin
+    image: openzipkin/zipkin
+    ports:
+      - "9411:9411"
+
+
+  # Eureka Server Config
+  discovery-server:
+    container_name: discovery-server
+    image: kagimbz/discovery-service
+    pull_policy: always
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+    ports:
+      - "8761:8761"
+    depends_on:
+      - zipkin
+      - loki
+
+
+  # API Gateway Config
+  api-gateway:
+    container_name: api-gateway
+    image: kagimbz/api-gateway
+    pull_policy: always
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY=TRACE
+    ports:
+      - "8181:8080"
+    expose:
+      - "8181"
+    depends_on:
+      - zipkin
+      - discovery-server
+      - keycloak
+
+
+  # Product Service Config
+  product-service:
+    container_name: product-service
+    image: kagimbz/product-service
+    pull_policy: always
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+    depends_on:
+      - mongo
+      - discovery-server
+      - api-gateway
+
+
+  # Order Service Config
+  order-service:
+    container_name: order-service
+    image: kagimbz/order-service
+    pull_policy: always
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+    depends_on:
+      - mysql-order
+      - broker
+      - zipkin
+      - discovery-server
+      - api-gateway
+
+
+  # Inventory Service Config
+  inventory-service:
+    container_name: inventory-service
+    image: kagimbz/inventory-service
+    pull_policy: always
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+    depends_on:
+      - mysql-inventory
+      - discovery-server
+      - api-gateway
+
+
+  # Notification Service Config
+  notification-service:
+    container_name: notification-service
+    image: kagimbz/notification-service
+    pull_policy: always
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+    depends_on:
+      - zipkin
+      - broker
+      - discovery-server
+      - api-gateway
+
+
+  # Prometheus Config
+  prometheus:
+    container_name: prometheus
+    image: prom/prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    depends_on:
+      - product-service
+      - inventory-service
+      - order-service
+      - notification-service
+      - api-gateway
+      - discovery-server
+    command:
+      - --enable-feature=exemplar-storage
+      - --config.file=/etc/prometheus/prometheus.yml
+    restart: unless-stopped
+
+
+  # Grafana Config
+  grafana:
+    container_name: grafana
+    image: grafana/grafana-oss
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=password
+    volumes:
+      - ./grafana:/var/lib/grafana
+      - ./grafana-config/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+    ports:
+      - "3000:3000"
+    links:
+      - prometheus:prometheus
+    restart: unless-stopped
+
+
+  # Loki Config
+  loki:
+    container_name: loki
+    image: grafana/loki
+    ports:
+      - "3100:3100"
+    command: [ "-config.file=/etc/loki/local-config.yaml" ]
+
+
+  # Tempo Config
+  tempo:
+    container_name: tempo
+    image: grafana/tempo
+    volumes:
+      - ./tempo/tempo.yml:/etc/tempo.yaml:ro
+      - ./tempo/tempo-data:/tmp/tempo
+    ports:
+      - "3110:3100"  # Tempo
+#      - "9411:9411" # zipkin
+    command: [ "-config.file=/etc/tempo.yaml" ]
