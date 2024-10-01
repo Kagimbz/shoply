@@ -2,7 +2,7 @@
 
 Your one-stop shop🛒
 
-**Shoply** is an exciting e-commerce application developed using **Java** and **Spring Boot 3**. Built on a **microservices-based architecture**, it offers scalability, fault tolerance and ease of maintenance.
+**Shoply** is an exciting e-commerce application developed using **Java** and **Spring Boot 3**. Built on a **microservices-based architecture**, it offers scalability, fault tolerance and ease of maintenance. While it’s still a work in progress, it’s thrilling to share its evolving features!
 
 ---
 
@@ -85,6 +85,8 @@ Clone the repository to your local machine:
 
 ```bash
 git clone https://github.com/Kagimbz/shoply.git
+```
+```bash
 cd shoply
 ```
 
@@ -143,6 +145,8 @@ Each service is exposed on specific ports when using Docker Compose:
 ## Coming Soon
 - **Cart Service**: Uses Redis as a cache service for user carts.
 - **Payment Service**: Integrates with **Daraja (Mpesa)** for mobile payments and **Stripe** for credit/debit card payments.
+  
+Stay tuned for the upcoming frontend as well!
 
 ---
 
